@@ -1,0 +1,83 @@
+{
+  "name": "WA Inbound → Golang",
+  "nodes": [
+    {
+      "name": "WhatsApp Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "parameters": {
+        "path": "wa-inbound",
+        "httpMethod": "POST"
+      },
+      "notes": "Meta mengirim event ke URL ini saat ada pesan masuk. Pastikan URL ini terdaftar di Meta Developer Console sebagai Webhook URL dengan Verify Token yang sama."
+    },
+    {
+      "name": "Verify Token (GET)",
+      "type": "n8n-nodes-base.if",
+      "parameters": {
+        "conditions": {
+          "string": [{ "value1": "={{ $json.query['hub.mode'] }}", "value2": "subscribe" }]
+        }
+      },
+      "notes": "Meta melakukan GET request untuk verifikasi webhook. Jika hub.mode = subscribe, balas dengan hub.challenge."
+    },
+    {
+      "name": "Extract Phone + Message",
+      "type": "n8n-nodes-base.set",
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "phone",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages[0].from }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages[0].text.body }}"
+            }
+          ]
+        }
+      },
+      "notes": "Ekstrak nomor pengirim dan isi pesan dari payload WhatsApp Cloud API."
+    },
+    {
+      "name": "POST ke Golang /api/message",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:8080/api/message",
+        "bodyParametersUi": {
+          "parameter": [
+            { "name": "phone", "value": "={{ $json.phone }}" },
+            { "name": "message", "value": "={{ $json.message }}" }
+          ]
+        },
+        "responseFormat": "json"
+      }
+    },
+    {
+      "name": "Kirim Reply ke WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v19.0/{{ $env.WA_PHONE_NUMBER_ID }}/messages",
+        "authentication": "predefinedCredentialType",
+        "headers": {
+          "Authorization": "=Bearer {{ $env.WA_API_TOKEN }}"
+        },
+        "bodyParametersUi": {
+          "parameter": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to", "value": "={{ $node['Extract Phone + Message'].json.phone }}" },
+            { "name": "type", "value": "text" },
+            { "name": "text.body", "value": "={{ $json.reply }}" }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "WhatsApp Webhook": { "main": [[ { "node": "Extract Phone + Message" } ]] },
+    "Extract Phone + Message": { "main": [[ { "node": "POST ke Golang /api/message" } ]] },
+    "POST ke Golang /api/message": { "main": [[ { "node": "Kirim Reply ke WhatsApp" } ]] }
+  }
+}

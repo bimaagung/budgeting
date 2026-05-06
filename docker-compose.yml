@@ -1,0 +1,49 @@
+services:
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SERVER_PORT: "8080"
+      DATABASE_URL: ${DATABASE_URL}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  n8n:
+    image: n8nio/n8n:latest
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # URL publik n8n — ganti dengan URL ngrok/domain saat expose ke internet
+      WEBHOOK_URL: http://localhost:5678
+
+      # Basic auth untuk UI n8n
+      N8N_BASIC_AUTH_ACTIVE: "true"
+      N8N_BASIC_AUTH_USER: admin
+      N8N_BASIC_AUTH_PASSWORD: admin123
+
+      # Timezone Indonesia
+      GENERIC_TIMEZONE: Asia/Jakarta
+      TZ: Asia/Jakarta
+
+      # Enkripsi credentials yang disimpan n8n
+      N8N_ENCRYPTION_KEY: 40iXGycixEyhuK32d7fE1dDdp2jCPQ5MjDYRnVMZBD2CzDnFLxsCDPFXn5Nrsxsa
+
+      # Environment variables untuk dipakai di workflow n8n
+      WA_API_TOKEN: ${WA_API_TOKEN}
+      WA_PHONE_NUMBER_ID: ${WA_PHONE_NUMBER_ID}
+
+      # Arahkan ke service backend (bukan host.docker.internal)
+      GOLANG_API_URL: http://backend:8080
+    volumes:
+      - n8n_data:/home/node/.n8n
+    depends_on:
+      - backend
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+volumes:
+  n8n_data:
