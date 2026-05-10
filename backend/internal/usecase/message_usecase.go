@@ -3,13 +3,8 @@ package usecase
 import (
 	"context"
 	"errors"
-	"fmt"
-	"time"
 
 	"budgeting/internal/domain"
-	"budgeting/pkg/currency"
-
-	"github.com/google/uuid"
 )
 
 // ErrUserNotRegistered is returned when phone has no matching user.
@@ -34,9 +29,42 @@ func NewMessageUsecase(
 	return &MessageUsecase{txRepo, userRepo, composer, reminder, goal}
 }
 
+// MessageResult is the envelope returned by Handle. Maps 1:1 to handler.Response;
+// handler converts to JSON DTOs at the wire.
 type MessageResult struct {
-	Reply        string
-	NeedsConfirm bool
+	ReplyType   string // "confirm" | "clarify" | "info" | "error"
+	Persisted   bool
+	ReplyText   string
+	Transaction *MessageTransaction
+	Context     *MessageContext
+	Data        map[string]any
+}
+
+type MessageTransaction struct {
+	ID       string
+	Amount   int64
+	Category string
+	Type     string
+}
+
+type MessageContext struct {
+	Balance        int64
+	CategoryBudget *MessageCategoryBudget
+	SavingsGoals   []MessageSavingsGoal
+}
+
+type MessageCategoryBudget struct {
+	Category  string
+	Spent     int64
+	Limit     int64
+	Remaining int64
+}
+
+type MessageSavingsGoal struct {
+	Name        string
+	Saved       int64
+	Target      int64
+	ProgressPct int
 }
 
 func (u *MessageUsecase) Handle(ctx context.Context, phone, rawMessage, receivedAt string) (*MessageResult, error) {
@@ -44,91 +72,9 @@ func (u *MessageUsecase) Handle(ctx context.Context, phone, rawMessage, received
 	if err != nil {
 		return nil, err
 	}
-
-	parsed, err := u.composer.ParseMessage(ctx, rawMessage)
-	if err != nil {
-		return nil, err
-	}
-
-	if parsed.Confidence < 0.75 {
-		return &MessageResult{
-			Reply:        "Maaf, saya kurang yakin maksudnya 🤔\nBisa tulis ulang? Contoh:\n• *makan 50rb*\n• *gaji 5jt*\n• *nabung laptop 10jt*",
-			NeedsConfirm: true,
-		}, nil
-	}
-
-	switch parsed.Intent {
-	case "expense", "income":
-		reply, err := u.recordTransaction(ctx, user, parsed, rawMessage)
-		return &MessageResult{Reply: reply}, err
-
-	case "balance":
-		reply, err := u.getBalance(ctx, user)
-		return &MessageResult{Reply: reply}, err
-
-	case "delete_last":
-		reply, err := u.deleteLast(ctx, user)
-		return &MessageResult{Reply: reply}, err
-
-	case "set_goal":
-		name := parsed.GoalName
-		if name == "" {
-			name = parsed.Note
-		}
-		reply, err := u.goal.SetGoal(ctx, user, name, parsed.Amount)
-		return &MessageResult{Reply: reply}, err
-
-	case "set_budget":
-		reply, err := u.goal.SetBudget(ctx, user, parsed.Category, parsed.Amount)
-		return &MessageResult{Reply: reply}, err
-
-	case "check_goal":
-		reply, err := u.goal.CheckGoals(ctx, user)
-		return &MessageResult{Reply: reply}, err
-
-	default:
-		return &MessageResult{Reply: "Saya belum bisa membantu dengan itu.\nCoba: *makan 50rb*, *gaji 5jt*, atau *saldo berapa?*"}, nil
-	}
-}
-
-func (u *MessageUsecase) recordTransaction(ctx context.Context, user *domain.User, parsed *domain.ParseResult, raw string) (string, error) {
-	tx := domain.Transaction{
-		ID:         uuid.New(),
-		UserID:     user.ID,
-		Type:       parsed.Intent,
-		Amount:     parsed.Amount,
-		Category:   parsed.Category,
-		Note:       parsed.Note,
-		Date:       time.Now(),
-		ReceivedAt: time.Now(),
-		RawMessage: raw,
-	}
-	if err := u.txRepo.Save(ctx, &tx); err != nil {
-		return "", err
-	}
-
-	rc, err := u.reminder.BuildContext(ctx, user, parsed.Category, parsed.Amount)
-	if err != nil {
-		return "", err
-	}
-
-	return u.composer.FormatPostTransaction(ctx, *rc)
-}
-
-func (u *MessageUsecase) deleteLast(ctx context.Context, user *domain.User) (string, error) {
-	tx, err := u.txRepo.DeleteLast(ctx, user.ID)
-	if err != nil {
-		return "Tidak ada transaksi yang bisa dihapus.", nil
-	}
-	return fmt.Sprintf("🗑️ Transaksi dihapus: _%s_ Rp %s", tx.Note, currency.FormatIDR(tx.Amount)), nil
-}
-
-func (u *MessageUsecase) getBalance(ctx context.Context, user *domain.User) (string, error) {
-	balance, err := u.txRepo.GetBalance(ctx, user.ID)
-	if err != nil {
-		return "", err
-	}
-	return fmt.Sprintf("💰 Saldo kamu saat ini: *Rp %s*", currency.FormatIDR(balance)), nil
+	_ = user
+	// TODO(Task 5.3): implement full dispatch
+	return &MessageResult{ReplyType: "info", Persisted: false, ReplyText: "stub"}, nil
 }
 
 func (u *MessageUsecase) findUser(ctx context.Context, phone string) (*domain.User, error) {

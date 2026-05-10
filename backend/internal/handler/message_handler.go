@@ -62,8 +62,41 @@ func (h *MessageHandler) Handle(c *fiber.Ctx) error {
 		return httputil.InternalError(c, err)
 	}
 
-	return c.JSON(fiber.Map{
-		"reply":         result.Reply,
-		"needs_confirm": result.NeedsConfirm,
-	})
+	return c.JSON(toResponse(result))
+}
+
+func toResponse(r *usecase.MessageResult) Response {
+	resp := Response{
+		ReplyType: r.ReplyType,
+		Persisted: r.Persisted,
+		ReplyText: r.ReplyText,
+		Data:      r.Data,
+	}
+	if r.Transaction != nil {
+		resp.Transaction = &TransactionView{
+			ID: r.Transaction.ID, Amount: r.Transaction.Amount,
+			Category: r.Transaction.Category, Type: r.Transaction.Type,
+		}
+	}
+	if r.Context != nil {
+		ctx := &ContextView{
+			Balance:      r.Context.Balance,
+			SavingsGoals: make([]SavingsGoalView, 0, len(r.Context.SavingsGoals)),
+		}
+		if r.Context.CategoryBudget != nil {
+			ctx.CategoryBudget = &CategoryBudgetView{
+				Category:  r.Context.CategoryBudget.Category,
+				Spent:     r.Context.CategoryBudget.Spent,
+				Limit:     r.Context.CategoryBudget.Limit,
+				Remaining: r.Context.CategoryBudget.Remaining,
+			}
+		}
+		for _, g := range r.Context.SavingsGoals {
+			ctx.SavingsGoals = append(ctx.SavingsGoals, SavingsGoalView{
+				Name: g.Name, Saved: g.Saved, Target: g.Target, ProgressPct: g.ProgressPct,
+			})
+		}
+		resp.Context = ctx
+	}
+	return resp
 }

@@ -104,7 +104,7 @@ func TestHandle_RejectsInvalidPhone(t *testing.T) {
 
 func TestHandle_NormalizesPhoneBeforeUsecase(t *testing.T) {
 	fake := &fakeUsecase{
-		returnResult: &usecase.MessageResult{Reply: "ok", NeedsConfirm: false},
+		returnResult: &usecase.MessageResult{ReplyType: "info", Persisted: false, ReplyText: "ok", Data: map[string]any{}},
 	}
 	app := newApp(fake)
 	rec := post(app, `{"phone":"081234567890","message":"x","received_at":"2026-05-10T10:00:00Z"}`)
