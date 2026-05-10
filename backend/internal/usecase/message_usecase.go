@@ -100,9 +100,10 @@ func (u *MessageUsecase) recordTransaction(ctx context.Context, user *domain.Use
 		Category:   parsed.Category,
 		Note:       parsed.Note,
 		Date:       time.Now(),
+		ReceivedAt: time.Now(),
 		RawMessage: raw,
 	}
-	if err := u.txRepo.Save(ctx, tx); err != nil {
+	if err := u.txRepo.Save(ctx, &tx); err != nil {
 		return "", err
 	}
 
