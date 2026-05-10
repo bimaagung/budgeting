@@ -33,11 +33,15 @@
             {
               "name": "message",
               "value": "={{ $json.body.entry[0].changes[0].value.messages[0].text.body }}"
+            },
+            {
+              "name": "received_at",
+              "value": "={{ new Date(parseInt($json.body.entry[0].changes[0].value.messages[0].timestamp) * 1000).toISOString() }}"
             }
           ]
         }
       },
-      "notes": "Ekstrak nomor pengirim dan isi pesan dari payload WhatsApp Cloud API."
+      "notes": "Ekstrak nomor pengirim, isi pesan, dan timestamp dari payload WhatsApp Cloud API. received_at berasal dari event timestamp (bukan Date.now()) untuk mendukung idempotency di backend."
     },
     {
       "name": "POST ke Golang /api/message",
@@ -48,7 +52,8 @@
         "bodyParametersUi": {
           "parameter": [
             { "name": "phone", "value": "={{ $json.phone }}" },
-            { "name": "message", "value": "={{ $json.message }}" }
+            { "name": "message", "value": "={{ $json.message }}" },
+            { "name": "received_at", "value": "={{ $json.received_at }}" }
           ]
         },
         "responseFormat": "json"
@@ -69,9 +74,16 @@
             { "name": "messaging_product", "value": "whatsapp" },
             { "name": "to", "value": "={{ $node['Extract Phone + Message'].json.phone }}" },
             { "name": "type", "value": "text" },
-            { "name": "text.body", "value": "={{ $json.reply }}" }
+            { "name": "text.body", "value": "={{ $json.reply_text }}" }
           ]
         }
+      }
+    },
+    {
+      "name": "Kontrak /api/message",
+      "type": "n8n-nodes-base.stickyNote",
+      "parameters": {
+        "content": "POST /api/message contract (spec: openspec/changes/add-message-ingestion):\n\nBody harus berisi:\n  {\n    \"phone\":       \"<E.164 atau format 0-prefix Indonesia>\",\n    \"message\":     \"<raw text WA, trimming outer whitespace dilakukan backend>\",\n    \"received_at\": \"<RFC3339 dari timestamp event WA>\"\n  }\n\nPENTING: received_at HARUS dari timestamp event WA Business API, BUKAN\nDate.now() / $now. Backend menggunakan (user_id, received_at) sebagai\ndedup key — timestamp salah = duplikasi baris pada retry.\n\nBackend selalu return HTTP 200 (reply_type ∈ confirm/clarify/info/error)\nkecuali request malformed (400) atau user tidak terdaftar (404).\nForward field reply_text ke WhatsApp message node."
       }
     }
   ],

@@ -8,6 +8,7 @@ import (
 	"budgeting/internal/domain"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -17,8 +18,27 @@ func NewTransactionRepository(db *gorm.DB) domain.TransactionRepository {
 	return &transactionRepo{db}
 }
 
-func (r *transactionRepo) Save(ctx context.Context, tx domain.Transaction) error {
-	return r.db.WithContext(ctx).Create(&tx).Error
+// Save persists a transaction. If a row with the same (user_id, received_at)
+// already exists (unique-violation 23505), Save mutates tx to match the
+// existing row and returns nil — caller treats this as idempotent success.
+func (r *transactionRepo) Save(ctx context.Context, tx *domain.Transaction) error {
+	err := r.db.WithContext(ctx).Create(tx).Error
+	if err == nil {
+		return nil
+	}
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23505" && pgErr.ConstraintName == "transactions_dedupe" {
+		var existing domain.Transaction
+		fetchErr := r.db.WithContext(ctx).
+			Where("user_id = ? AND received_at = ?", tx.UserID, tx.ReceivedAt).
+			First(&existing).Error
+		if fetchErr != nil {
+			return fetchErr
+		}
+		*tx = existing
+		return nil
+	}
+	return err
 }
 
 func (r *transactionRepo) DeleteLast(ctx context.Context, userID uuid.UUID) (*domain.Transaction, error) {

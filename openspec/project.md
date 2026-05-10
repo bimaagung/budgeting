@@ -1,36 +1,50 @@
-# Project Context for OpenSpec
+# Konteks Project untuk OpenSpec
 
-This file gives OpenSpec users (and AI assistants) the canonical pointer to project conventions.
+File ini memberi pengguna OpenSpec (dan AI assistant) pointer kanonik ke konvensi project.
 
-## Authoritative Source
+## Bahasa Dokumen
 
-The full project overview, architecture, tech stack, and conventions live in
-[`/CLAUDE.md`](../CLAUDE.md). Treat that file as the source of truth.
+**Semua artifact OpenSpec di project ini ditulis dalam Bahasa Indonesia** — termasuk
+`proposal.md`, `design.md`, spec deltas (`specs/**/*.md`), dan `tasks.md`.
 
-## Quick Summary
+Pengecualian (tetap dalam Bahasa Inggris):
+- Identifier kode: nama function, struct, package, file path.
+- Nilai enum domain: `expense`, `income`, `balance`, `report`, `delete_last`,
+  `set_goal`, `set_budget`, `check_goal`, `unknown`.
+- Header struktural OpenSpec yang sudah baku: `## ADDED Requirements`,
+  `### Requirement:`, `#### Scenario:`, `WHEN`, `THEN`, `AND`, `GIVEN`.
+- Istilah teknis tanpa padanan natural: `Clean Architecture`, `confidence gate`,
+  `webhook`, `cron`, dll.
 
-- **Domain:** Personal budgeting via WhatsApp; LLM parses free-text into transactions.
-- **Backend:** Golang, Clean Architecture (4 layers: `domain` → `usecase` → `handler` + `platform`).
-- **Mobile:** Flutter (Android), read-only dashboard.
-- **Automation:** n8n (forwards WA → backend; cron triggers reminders).
-- **LLM:** Claude API for understanding and reminder composition.
+## Sumber Otoritatif
 
-## Where Specs Map to Code
+Overview project lengkap, arsitektur, tech stack, dan konvensi ada di
+[`/CLAUDE.md`](../CLAUDE.md). File tersebut adalah sumber kebenaran.
 
-| OpenSpec capability         | Backend location                           |
+## Ringkasan Singkat
+
+- **Domain:** Budgeting personal via WhatsApp; LLM parsing pesan bebas menjadi transaksi.
+- **Backend:** Golang, Clean Architecture (4 layer: `domain` → `usecase` → `handler` + `platform`).
+- **Mobile:** Flutter (Android), dashboard read-only.
+- **Automation:** n8n (forward pesan WA → backend; cron memicu reminder).
+- **LLM:** Claude API untuk understanding dan komposisi reminder.
+
+## Pemetaan Spec ke Kode
+
+| Kapabilitas OpenSpec        | Lokasi Backend                             |
 |-----------------------------|--------------------------------------------|
 | `message-ingestion`         | `internal/handler/message_handler.go`, `internal/usecase/message_usecase.go`, `internal/platform/llm/` |
 | `reminder-composition`      | `internal/handler/reminder_handler.go`, `internal/usecase/reminder_usecase.go`, `internal/platform/llm/composer.go` |
 | `savings-goal`              | `internal/domain/savings_goal.go`, `internal/usecase/goal_usecase.go` |
 | `budget-target`             | `internal/domain/budget_target.go`, `internal/usecase/goal_usecase.go` |
 
-## Architecture Rule (must hold for every change)
+## Aturan Arsitektur (wajib dipatuhi setiap change)
 
-Dependency direction: `handler`/`platform` → `usecase` → `domain`. The `domain`
-layer must not import any other internal package. Platform implementations
-(Postgres, LLM client) live behind interfaces declared in `domain`.
+Arah dependency: `handler`/`platform` → `usecase` → `domain`. Layer `domain`
+tidak boleh import package internal lain. Implementasi platform
+(Postgres, LLM client) berada di balik interface yang dideklarasikan di `domain`.
 
 ## Confidence Gate
 
-Any spec touching LLM parsing must respect the confidence threshold (`< 0.75`
-triggers a clarification reply via WhatsApp before persisting).
+Semua spec yang menyentuh LLM parsing wajib menghormati confidence threshold
+(`< 0.75` memicu reply klarifikasi via WhatsApp sebelum melakukan persistensi).

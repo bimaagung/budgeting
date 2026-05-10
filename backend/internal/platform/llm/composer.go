@@ -2,14 +2,14 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"log"
+	"os"
 
 	"budgeting/internal/domain"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
-	"os"
 )
 
 const model = anthropic.ModelClaudeHaiku4_5_20251001
@@ -41,11 +41,13 @@ func (c *composer) ParseMessage(ctx context.Context, rawMessage string) (*domain
 		return nil, fmt.Errorf("claude api: %w", err)
 	}
 
-	var result domain.ParseResult
-	if err := json.Unmarshal([]byte(msg.Content[0].Text), &result); err != nil {
-		return nil, fmt.Errorf("parse response: %w", err)
+	raw := []byte(msg.Content[0].Text)
+	parsed, vErr := Validate(raw)
+	if vErr != nil {
+		log.Printf("llm parse validation failed: raw=%s err=%v", string(raw), vErr)
+		return &domain.ParseResult{Intent: "unknown", Confidence: 0}, nil
 	}
-	return &result, nil
+	return &parsed, nil
 }
 
 func (c *composer) FormatPostTransaction(ctx context.Context, rc domain.ReminderContext) (string, error) {
