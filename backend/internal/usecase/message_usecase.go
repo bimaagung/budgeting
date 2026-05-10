@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,10 @@ import (
 
 	"github.com/google/uuid"
 )
+
+// ErrUserNotRegistered is returned when phone has no matching user.
+// Handler maps this to HTTP 404. No auto-create per spec Decision 7.
+var ErrUserNotRegistered = errors.New("user not registered")
 
 type MessageUsecase struct {
 	txRepo   domain.TransactionRepository
@@ -34,8 +39,8 @@ type MessageResult struct {
 	NeedsConfirm bool
 }
 
-func (u *MessageUsecase) Handle(ctx context.Context, phone, rawMessage string) (*MessageResult, error) {
-	user, err := u.getOrCreateUser(ctx, phone)
+func (u *MessageUsecase) Handle(ctx context.Context, phone, rawMessage, receivedAt string) (*MessageResult, error) {
+	user, err := u.findUser(ctx, phone)
 	if err != nil {
 		return nil, err
 	}
@@ -125,13 +130,13 @@ func (u *MessageUsecase) getBalance(ctx context.Context, user *domain.User) (str
 	return fmt.Sprintf("💰 Saldo kamu saat ini: *Rp %s*", currency.FormatIDR(balance)), nil
 }
 
-func (u *MessageUsecase) getOrCreateUser(ctx context.Context, phone string) (*domain.User, error) {
+func (u *MessageUsecase) findUser(ctx context.Context, phone string) (*domain.User, error) {
 	user, err := u.userRepo.FindByPhone(ctx, phone)
 	if err != nil {
 		return nil, err
 	}
-	if user != nil {
-		return user, nil
+	if user == nil {
+		return nil, ErrUserNotRegistered
 	}
-	return u.userRepo.Upsert(ctx, domain.User{ID: uuid.New(), Phone: phone, Name: phone})
+	return user, nil
 }
