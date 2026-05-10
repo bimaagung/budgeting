@@ -313,3 +313,71 @@ func mustParseRFC3339(t *testing.T, s string) time.Time {
 	}
 	return v
 }
+
+// TestHandle_RetryReusesTransactionIDButRecomputesContext verifies the
+// idempotent-retry contract: when repo signals dedup (existing row mutated
+// into tx), usecase still reads fresh balance + goals and re-calls composer.
+func TestHandle_RetryReusesTransactionIDButRecomputesContext(t *testing.T) {
+	existingID := uuid.New()
+	user := makeUser()
+	rcv := mustParseRFC3339(t, "2026-05-10T10:00:00Z")
+	tx := &dedupAwareTxRepo{
+		existing: &domain.Transaction{
+			ID: existingID, UserID: user.ID, Type: "expense", Amount: 45000,
+			Category: "Makan & Minum", ReceivedAt: rcv, Date: rcv,
+		},
+		balance: 999_000_000, // fresh balance after retry
+	}
+	uc := newUsecase(t,
+		&fakeUserRepo{user: user},
+		tx,
+		&fakeGoalRepo{},
+		&fakeBudgetRepo{},
+		&fakeComposer{
+			parseResult: &domain.ParseResult{Intent: "expense", Amount: 45000, Category: "Makan & Minum", Confidence: 0.95},
+			composeText: "post-retry compose",
+		},
+	)
+	res, err := uc.Handle(context.Background(), "+6281234567890", "makan 45rb", "2026-05-10T10:00:00Z")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if res.ReplyType != "confirm" {
+		t.Fatalf("reply_type: %q", res.ReplyType)
+	}
+	if res.Transaction.ID != existingID.String() {
+		t.Errorf("transaction.id: got %s, want existing %s", res.Transaction.ID, existingID)
+	}
+	if res.Context.Balance != 999_000_000 {
+		t.Errorf("context.balance: got %d, want 999000000 (fresh state after retry)", res.Context.Balance)
+	}
+	if res.ReplyText != "post-retry compose" {
+		t.Errorf("reply_text: got %q (composer should have been re-called)", res.ReplyText)
+	}
+}
+
+// dedupAwareTxRepo simulates Phase 4 repo behavior: Save mutates the input
+// to match an existing row instead of inserting.
+type dedupAwareTxRepo struct {
+	existing *domain.Transaction
+	balance  int64
+}
+
+func (r *dedupAwareTxRepo) Save(ctx context.Context, tx *domain.Transaction) error {
+	if r.existing != nil {
+		*tx = *r.existing
+	}
+	return nil
+}
+func (r *dedupAwareTxRepo) DeleteLast(ctx context.Context, uid uuid.UUID) (*domain.Transaction, error) {
+	return nil, nil
+}
+func (r *dedupAwareTxRepo) GetBalance(ctx context.Context, uid uuid.UUID) (int64, error) {
+	return r.balance, nil
+}
+func (r *dedupAwareTxRepo) GetTodaySpendByCategory(ctx context.Context, uid uuid.UUID) (map[string]int64, error) {
+	return nil, nil
+}
+func (r *dedupAwareTxRepo) GetMonthSpendByCategory(ctx context.Context, uid uuid.UUID, year, month int) (map[string]int64, error) {
+	return nil, nil
+}
