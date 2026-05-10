@@ -34,7 +34,7 @@ User boleh menulis pesan bebas — LLM yang bertugas memahami intent dan mengkat
 [Golang — Message Handler]
       │
       ▼
-[LLM Understanding Service]  ← pkg/understanding/
+[LLM Understanding Service]  ← internal/platform/llm/
       │ kirim raw text ke Claude API
       │ structured output: type, amount, category, note, confidence
       │
@@ -49,9 +49,19 @@ User boleh menulis pesan bebas — LLM yang bertugas memahami intent dan mengkat
       ◄── HTTP GET ── [Flutter App (Android)]
 ```
 
+### Response Envelope (Tagged Union)
+
+Endpoint `POST /api/message` selalu return body:
+- `reply_type`: `confirm` | `clarify` | `info` | `error`
+- `persisted`: bool
+- `reply_text`: string non-kosong
+- field opsional per `reply_type` (lihat spec `openspec/changes/add-message-ingestion/specs/message-ingestion/spec.md`)
+
+HTTP status: 400 (malformed body), 404 (user tidak terdaftar), 200 (semua kasus lain — termasuk `reply_type=error` untuk failure post-parse).
+
 ### LLM Understanding Layer
 
-**Lokasi**: `backend/pkg/understanding/`
+**Lokasi**: `backend/internal/platform/llm/`
 
 LLM menerima pesan mentah dan mengembalikan structured JSON:
 
@@ -286,7 +296,7 @@ type ReminderContext struct {
 ### Prinsip Arsitektur
 
 - **n8n hanya forward, tidak parse**: n8n tidak boleh melakukan logika apapun terhadap isi pesan — cukup teruskan raw text + phone number ke Golang.
-- **LLM Understanding ada di backend (`pkg/understanding`)**: lebih mudah di-test, retry, dan diganti model tanpa ubah n8n.
+- **LLM Understanding ada di backend (`internal/platform/llm`)**: lebih mudah di-test, retry, dan diganti model tanpa ubah n8n. Validator (`parser.go`) ada di layer ini, bukan di pkg.
 - **Simpan `raw_message`**: pesan asli user selalu disimpan untuk keperluan audit dan debug.
 - **Confidence gate**: LLM dengan confidence rendah wajib konfirmasi dulu ke user, tidak langsung simpan.
 - **Flutter read-only**: semua mutasi data hanya via WhatsApp, Flutter hanya display.
@@ -301,7 +311,7 @@ type ReminderContext struct {
 cd backend
 go run ./cmd/server
 go test ./...
-go test ./pkg/understanding/   # test LLM parser dengan berbagai variasi input
+go test ./internal/platform/llm/   # test LLM parser dengan berbagai variasi input
 go build -o bin/server ./cmd/server
 ```
 
