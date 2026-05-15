@@ -2,25 +2,69 @@
 
 ## Goal
 
-Menampilkan peringatan otomatis di pesan konfirmasi transaksi ketika pengeluaran suatu kategori sudah mencapai ≥ 80% dari budget bulan ini, tanpa perlu kirim pesan WA terpisah.
+Menampilkan peringatan otomatis di pesan konfirmasi transaksi ketika pengeluaran bulan ini sudah menggerus ≥ 80% dari "ruang belanja" — yaitu sisa pemasukan setelah dikurangi alokasi nabung bulanan dari semua savings goal aktif yang punya deadline.
 
-## Arsitektur
+## Formula
 
-Logika deteksi "hampir habis" dihitung di Go (`BuildContext`), bukan di LLM. Go menentukan kategori mana yang melewati threshold, lalu meneruskan daftarnya ke prompt builder. LLM hanya bertugas merangkai pesan yang natural — termasuk peringatan jika diminta.
+```
+monthly_savings_target = Σ (goal.TargetAmount - goal.SavedAmount) ÷ bulan_sampai_deadline
+                         untuk semua active goal dengan Deadline != nil
 
-Perubahan hanya di 3 file kecil. Tidak ada endpoint baru, tidak ada perubahan n8n, tidak ada perubahan skema DB.
+ruang_belanja          = pemasukan_bulan_ini - monthly_savings_target
 
-## Threshold
+spending_alert         = pengeluaran_bulan_ini ≥ 80% × ruang_belanja
+```
 
-Pengeluaran bulan ini ≥ 80% dari `BudgetTarget.Amount` untuk kategori yang sama di bulan dan tahun yang sama.
+### Contoh
 
-Formula: `monthSpend * 100 / budgetAmount >= 80`
+User punya 2 savings goal aktif dengan deadline:
+- Jalan-jalan: target Rp 6.000.000, sudah Rp 0, deadline 12 bulan → Rp 500.000/bulan
+- Tabungan darurat: target Rp 4.800.000, sudah Rp 0, deadline 24 bulan → Rp 200.000/bulan
+
+Pemasukan bulan ini: Rp 10.000.000  
+Total alokasi nabung: Rp 700.000/bulan  
+Ruang belanja: Rp 9.300.000  
+Threshold 80%: Rp 7.440.000  
+
+Jika pengeluaran bulan ini ≥ Rp 7.440.000 → `SpendingAlert = true` → peringatan masuk ke reply WA.
 
 ## Komponen yang Berubah
 
-### 1. `internal/domain/reminder.go`
+### 1. `internal/domain/transaction.go`
 
-Tambah field `NearBudgetLimit []string` ke struct `ReminderContext`:
+Tambah method `GetMonthIncome` ke interface `TransactionRepository`:
+
+```go
+type TransactionRepository interface {
+    Save(ctx context.Context, tx *Transaction) error
+    DeleteLast(ctx context.Context, userID uuid.UUID) (*Transaction, error)
+    GetBalance(ctx context.Context, userID uuid.UUID) (int64, error)
+    GetTodaySpendByCategory(ctx context.Context, userID uuid.UUID) (map[string]int64, error)
+    GetMonthSpendByCategory(ctx context.Context, userID uuid.UUID, year, month int) (map[string]int64, error)
+    GetMonthIncome(ctx context.Context, userID uuid.UUID, year, month int) (int64, error)
+}
+```
+
+### 2. `internal/platform/postgres/transaction_repo.go`
+
+Implementasi `GetMonthIncome` — pola sama dengan `GetBalance`:
+
+```go
+func (r *transactionRepo) GetMonthIncome(ctx context.Context, userID uuid.UUID, year, month int) (int64, error) {
+    var total int64
+    err := r.db.WithContext(ctx).
+        Model(&domain.Transaction{}).
+        Select("COALESCE(SUM(amount), 0)").
+        Where("user_id = ? AND type = 'income' AND EXTRACT(YEAR FROM date) = ? AND EXTRACT(MONTH FROM date) = ?",
+            userID, year, month).
+        Scan(&total).Error
+    return total, err
+}
+```
+
+### 3. `internal/domain/reminder.go`
+
+Tambah field `SpendingAlert bool` ke `ReminderContext`:
 
 ```go
 type ReminderContext struct {
@@ -32,106 +76,118 @@ type ReminderContext struct {
     SpendByCategory map[string]int64
     BudgetRemaining map[string]int64
     SavingsGoals    []SavingsGoal
-    NearBudgetLimit []string // kategori dengan pengeluaran bulan ini ≥ 80% budget
+    SpendingAlert   bool // true = pengeluaran ≥ 80% dari ruang belanja
 }
 ```
 
-Field ini zero-value (`nil`) jika tidak ada kategori yang hampir habis — backward compatible dengan semua kode yang sudah ada.
+Zero-value `false` — backward compatible dengan semua kode yang sudah ada.
 
-### 2. `internal/usecase/reminder_usecase.go`
+### 4. `internal/usecase/reminder_usecase.go`
 
-Di `BuildContext()`, setelah loop `budgetRemaining`, tambah kalkulasi `NearBudgetLimit`:
+Di `BuildContext()`, setelah `goals` di-fetch, tambah kalkulasi:
+
+**Step A: hitung monthly savings target dari goals**
 
 ```go
-var nearBudgetLimit []string
-for _, b := range budgets {
-    spent := monthByCategory[b.Category]
-    if b.Amount > 0 && spent*100/b.Amount >= 80 {
-        nearBudgetLimit = append(nearBudgetLimit, b.Category)
+now := time.Now()
+var monthlySavingsTarget int64
+for _, g := range goals {
+    if g.Deadline == nil || !g.IsActive {
+        continue
+    }
+    remaining := g.TargetAmount - g.SavedAmount
+    if remaining <= 0 {
+        continue
+    }
+    months := (g.Deadline.Year()-now.Year())*12 + int(g.Deadline.Month()) - int(now.Month())
+    if months <= 0 {
+        continue
+    }
+    monthlySavingsTarget += remaining / int64(months)
+}
+```
+
+**Step B: fetch income bulan ini**
+
+```go
+monthIncome, err := u.txRepo.GetMonthIncome(ctx, user.ID, now.Year(), int(now.Month()))
+if err != nil {
+    return nil, err
+}
+```
+
+**Step C: hitung total pengeluaran bulan ini dan set alert**
+
+```go
+var monthExpense int64
+for _, v := range monthByCategory {
+    monthExpense += v
+}
+
+spendingAlert := false
+if monthIncome > 0 && monthlySavingsTarget > 0 {
+    spendingRoom := monthIncome - monthlySavingsTarget
+    if spendingRoom > 0 {
+        spendingAlert = monthExpense*100/spendingRoom >= 80
     }
 }
 ```
 
-Lalu tambahkan field ke return value:
+Lalu tambahkan ke return:
 
 ```go
 return &domain.ReminderContext{
     // ... existing fields ...
-    NearBudgetLimit: nearBudgetLimit,
+    SpendingAlert: spendingAlert,
 }, nil
 ```
 
-Kategori hanya masuk ke `NearBudgetLimit` jika:
-- Ada `BudgetTarget` untuk kategori itu di bulan/tahun ini (`b.Amount > 0`)
-- Pengeluaran bulan ini ≥ 80% dari budget tersebut
+### 5. `internal/platform/llm/prompt.go`
 
-Kategori tanpa budget yang ditetapkan tidak menghasilkan alert.
-
-### 3. `internal/platform/llm/prompt.go`
-
-Di fungsi `buildPostTransactionPrompt()`, tambah section peringatan setelah bagian savings goal:
+Di `buildPostTransactionPrompt()`, tambah peringatan setelah bagian savings goal:
 
 ```go
-if len(rc.NearBudgetLimit) > 0 {
-    sb.WriteString(fmt.Sprintf("- PERINGATAN budget hampir habis: %s\n",
-        strings.Join(rc.NearBudgetLimit, ", ")))
-    sb.WriteString("Sertakan peringatan ini dalam pesan konfirmasi.\n")
+if rc.SpendingAlert {
+    sb.WriteString("- PERINGATAN: Pengeluaran bulan ini sudah ≥ 80% dari ruang belanja (pemasukan dikurangi alokasi nabung). Sertakan peringatan hemat dalam pesanmu.\n")
 }
 ```
 
-Import `strings` sudah ada di file ini.
-
-## Data Flow
-
-```
-User: "makan siang 45rb"
-  │
-  ▼
-handleTransaction() — save expense Makan & Minum Rp 45.000
-  │
-  ▼
-BuildContext()
-  ├─ monthByCategory["Makan & Minum"] = 430.000  (bulan ini total)
-  ├─ budgets["Makan & Minum"].Amount  = 500.000  (budget ditetapkan)
-  ├─ 430.000 * 100 / 500.000 = 86  ≥ 80 → masuk NearBudgetLimit
-  └─ ReminderContext.NearBudgetLimit = ["Makan & Minum"]
-  │
-  ▼
-buildPostTransactionPrompt()
-  └─ "- PERINGATAN budget hampir habis: Makan & Minum"
-  │
-  ▼
-LLM generate reply:
-  "✅ Tercatat: Makan & Minum Rp 45.000
-   ⚠️ Budget Makan & Minum hampir habis (86% terpakai)!
-   💰 Saldo: Rp 1.955.000"
-```
+Import yang dibutuhkan sudah ada (`fmt`, `strings`, `time`, `budgeting/internal/domain`, `budgeting/pkg/currency`).
 
 ## Edge Cases
 
 | Kondisi | Behaviour |
 |---------|-----------|
-| Kategori tidak punya budget | Tidak masuk `NearBudgetLimit` (tidak ada alert) |
-| Budget = 0 | Dilewati (guard `b.Amount > 0`) |
-| Tepat 80% | Alert muncul (threshold `>= 80`) |
-| Tepat 100% (habis) | Alert tetap muncul |
-| Multiple kategori hampir habis | Semua masuk list, LLM sebut semuanya |
-| Intent `income` (bukan expense) | `BuildContext` tetap dipanggil, tapi pemasukan tidak menambah `monthSpend` — alert tidak muncul untuk income |
+| Semua goal tidak punya deadline | `monthlySavingsTarget = 0` → skip alert (tidak ada konteks nabung) |
+| Goal sudah melewati deadline | `months <= 0` → goal dilewati |
+| Goal sudah tercapai (`SavedAmount >= TargetAmount`) | `remaining <= 0` → goal dilewati |
+| `pemasukan_bulan_ini = 0` | `monthIncome = 0` → skip alert (guard `monthIncome > 0`) |
+| `ruang_belanja ≤ 0` (alokasi nabung > pemasukan) | Skip alert (guard `spendingRoom > 0`) |
+| Intent `income` bukan expense | `monthExpense` tidak berubah banyak → kemungkinan alert tetap terhitung tapi jarang trigger |
 
 ## Testing
 
-### Unit test `BuildContext` — `reminder_usecase_test.go`
+### Integration test `GetMonthIncome` — `transaction_repo_test.go`
 
-- Seed budget Rp 500.000 untuk kategori "Makan & Minum", month spend Rp 400.000 (80%) → `NearBudgetLimit` berisi "Makan & Minum"
-- Spend Rp 399.000 (79.8%) → `NearBudgetLimit` kosong
-- Kategori tanpa budget → tidak masuk list meski spend besar
-- Budget = 0 → tidak panic, tidak masuk list
+- Seed 2 income transactions bulan ini → `GetMonthIncome` return jumlah keduanya
+- Seed income bulan lalu → tidak masuk hasil bulan ini
+- Tidak ada income bulan ini → return 0 (bukan error)
+
+### Unit test `BuildContext` alert logic — `reminder_usecase_test.go`
+
+Semua test menggunakan fake repo (tidak butuh DB):
+
+- **Alert muncul**: income Rp 10jt, savings target Rp 700rb, expense Rp 7.5jt → `SpendingAlert = true` (80.6%)
+- **Alert tidak muncul**: expense Rp 7.4jt → `SpendingAlert = false` (79.5%)
+- **Goal tanpa deadline**: `monthlySavingsTarget = 0` → skip alert → `SpendingAlert = false`
+- **Income nol**: `monthIncome = 0` → skip alert → `SpendingAlert = false`
+- **Ruang belanja negatif**: income Rp 500rb, savings target Rp 700rb → skip alert → `SpendingAlert = false`
 
 ### Unit test prompt builder — `prompt_test.go` (file baru)
 
-- `buildPostTransactionPrompt` dengan `NearBudgetLimit = ["Makan & Minum"]` → output mengandung "PERINGATAN" dan "Makan & Minum"
-- `buildPostTransactionPrompt` dengan `NearBudgetLimit = nil` → output tidak mengandung "PERINGATAN"
+- `buildPostTransactionPrompt` dengan `SpendingAlert = true` → output mengandung "PERINGATAN"
+- `buildPostTransactionPrompt` dengan `SpendingAlert = false` → output tidak mengandung "PERINGATAN"
 
 ### Regression
 
-- `go test ./...` harus tetap hijau — `NearBudgetLimit` nil-safe di semua kode yang sudah ada
+`go test ./...` harus tetap hijau — `SpendingAlert` zero-value `false` di semua fake repo yang sudah ada.
