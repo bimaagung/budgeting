@@ -1,66 +1,98 @@
 {
   "name": "Daily Reminder → WhatsApp",
+  "active": false,
   "nodes": [
     {
-      "name": "Cron Trigger",
+      "id": "node-cron",
+      "name": "Cron 20:00 WIB",
       "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
       "parameters": {
         "rule": {
-          "interval": [{ "field": "cronExpression", "expression": "0 20 * * *" }]
+          "interval": [{ "field": "cronExpression", "expression": "0 13 * * *" }]
         }
       },
-      "notes": "Berjalan setiap hari jam 20.00 WIB (13.00 UTC). Sesuaikan timezone di n8n settings."
+      "notes": "20:00 WIB = 13:00 UTC. Sesuaikan timezone di n8n Settings jika perlu."
     },
     {
-      "name": "Daftar Nomor User",
-      "type": "n8n-nodes-base.set",
-      "parameters": {
-        "values": {
-          "array": [
-            { "name": "phones", "value": ["628xxxxxxxxxx", "628yyyyyyyyyy"] }
-          ]
-        }
-      },
-      "notes": "Hardcode nomor user untuk 2 user personal. Bisa diganti dengan query ke DB jika user bertambah."
-    },
-    {
-      "name": "Loop per User",
-      "type": "n8n-nodes-base.splitInBatches",
-      "parameters": { "batchSize": 1 }
-    },
-    {
-      "name": "GET Reminder dari Golang",
+      "id": "node-get-phones",
+      "name": "GET Daftar User",
       "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [460, 300],
       "parameters": {
         "method": "GET",
-        "url": "=http://localhost:8080/api/reminder/{{ $json.phone }}",
-        "responseFormat": "json"
+        "url": "http://host.docker.internal:8080/api/users/phones",
+        "options": {}
       }
     },
     {
+      "id": "node-split-phones",
+      "name": "Split per Phone",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "parameters": {
+        "jsCode": "const phones = $input.item.json.phones;\nreturn phones.map(phone => ({ json: { phone } }));"
+      }
+    },
+    {
+      "id": "node-get-reminder",
+      "name": "GET Reminder dari Golang",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "parameters": {
+        "method": "GET",
+        "url": "=http://host.docker.internal:8080/api/reminder/{{ $json.phone }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-send-wa",
       "name": "Kirim Reminder ke WhatsApp",
       "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 300],
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v19.0/{{ $env.WA_PHONE_NUMBER_ID }}/messages",
-        "headers": {
-          "Authorization": "=Bearer {{ $env.WA_API_TOKEN }}"
-        },
-        "bodyParametersUi": {
-          "parameter": [
-            { "name": "messaging_product", "value": "whatsapp" },
-            { "name": "to", "value": "={{ $node['Loop per User'].json.phone }}" },
-            { "name": "type", "value": "text" },
-            { "name": "text.body", "value": "={{ $json.message }}" }
+        "url": "=https://graph.facebook.com/v19.0/{{ $vars.WA_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $vars.WA_API_TOKEN }}" }
           ]
-        }
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to", "value": "={{ $('Split per Phone').item.json.phone }}" },
+            { "name": "type", "value": "text" },
+            { "name": "text", "value": "={{ JSON.stringify({ body: $json.message }) }}" }
+          ]
+        },
+        "options": {}
       }
     }
   ],
   "connections": {
-    "Cron Trigger": { "main": [[ { "node": "Daftar Nomor User" } ]] },
-    "Daftar Nomor User": { "main": [[ { "node": "Loop per User" } ]] },
-    "Loop per User": { "main": [[ { "node": "GET Reminder dari Golang" } ]] },
-    "GET Reminder dari Golang": { "main": [[ { "node": "Kirim Reminder ke WhatsApp" } ]] }
-  }
+    "Cron 20:00 WIB": {
+      "main": [[{ "node": "GET Daftar User", "type": "main", "index": 0 }]]
+    },
+    "GET Daftar User": {
+      "main": [[{ "node": "Split per Phone", "type": "main", "index": 0 }]]
+    },
+    "Split per Phone": {
+      "main": [[{ "node": "GET Reminder dari Golang", "type": "main", "index": 0 }]]
+    },
+    "GET Reminder dari Golang": {
+      "main": [[{ "node": "Kirim Reminder ke WhatsApp", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
 }
