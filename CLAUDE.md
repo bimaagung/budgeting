@@ -15,7 +15,7 @@ User boleh menulis pesan bebas — LLM yang bertugas memahami intent dan mengkat
 | Messaging interface | WhatsApp Business API | Input transaksi & notifikasi reminder |
 | Workflow automation | n8n (self-hosted) | Terima webhook WA, forward raw text, scheduling reminder |
 | Backend API | Golang | Business logic, REST API, autentikasi |
-| LLM Understanding | Claude API (Anthropic) | Parse & kategorisasi pesan bebas dari user |
+| LLM Understanding | Gemini 2.5 Flash (default) / Claude Haiku (opsional) | Parse & kategorisasi pesan bebas dari user. Provider dipilih via env `LLM_PROVIDER`. |
 | Database | PostgreSQL | Penyimpanan transaksi & user |
 | Mobile | Flutter (Android) | Dashboard, laporan, grafik |
 
@@ -188,10 +188,13 @@ budgeting/
 │   │       │   ├── savings_goal_repo.go    # implements SavingsGoalRepository
 │   │       │   └── budget_target_repo.go   # implements BudgetTargetRepository
 │   │       └── llm/
-│   │           ├── client.go               # Claude API call wrapper
-│   │           ├── prompt.go               # system prompt builder + kategori + intents
-│   │           ├── reminder_composer.go    # implements MessageComposer
-│   │           └── parser_test.go          # test variasi input WA user
+│   │           ├── provider.go               # interface LLMProvider + factory NewProvider()
+│   │           ├── gemini_provider.go        # implementasi Gemini 2.5 Flash (default)
+│   │           ├── claude_provider.go        # implementasi Claude Haiku (opsional)
+│   │           ├── composer.go               # orchestrator: implements MessageComposer
+│   │           ├── prompt.go                 # system prompt builder + kategori + intents
+│   │           ├── parser.go                 # Validate(raw) → ParseResult
+│   │           └── *_test.go                 # composer + provider + parser tests
 │   │
 │   ├── pkg/                                # Utilities reusable lintas project
 │   │   ├── currency/                       # FormatIDR(amount int64) string
@@ -296,7 +299,7 @@ type ReminderContext struct {
 ### Prinsip Arsitektur
 
 - **n8n hanya forward, tidak parse**: n8n tidak boleh melakukan logika apapun terhadap isi pesan — cukup teruskan raw text + phone number ke Golang.
-- **LLM Understanding ada di backend (`internal/platform/llm`)**: lebih mudah di-test, retry, dan diganti model tanpa ubah n8n. Validator (`parser.go`) ada di layer ini, bukan di pkg.
+- **LLM Understanding ada di backend (`internal/platform/llm`)**: lebih mudah di-test, retry, dan diganti model tanpa ubah n8n. Validator (`parser.go`) ada di layer ini, bukan di pkg. Provider abstraction (`LLMProvider`) memungkinkan swap antar vendor (Gemini, Claude, dll) via env `LLM_PROVIDER` tanpa ubah usecase / handler.
 - **Simpan `raw_message`**: pesan asli user selalu disimpan untuk keperluan audit dan debug.
 - **Confidence gate**: LLM dengan confidence rendah wajib konfirmasi dulu ke user, tidak langsung simpan.
 - **Flutter read-only**: semua mutasi data hanya via WhatsApp, Flutter hanya display.
