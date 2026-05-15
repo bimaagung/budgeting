@@ -14,6 +14,8 @@ type claudeProvider struct {
 	model  anthropic.Model
 }
 
+var _ LLMProvider = (*claudeProvider)(nil)
+
 func newClaudeProvider() (*claudeProvider, error) {
 	key := os.Getenv("ANTHROPIC_API_KEY")
 	if key == "" {
@@ -26,6 +28,7 @@ func newClaudeProvider() (*claudeProvider, error) {
 }
 
 func (c *claudeProvider) Generate(ctx context.Context, system, user string, expectJSON bool) (string, error) {
+	// JSON parse results are compact; free-text reminders need more headroom.
 	maxTok := int64(512)
 	if expectJSON {
 		maxTok = 256
@@ -40,6 +43,9 @@ func (c *claudeProvider) Generate(ctx context.Context, system, user string, expe
 	})
 	if err != nil {
 		return "", fmt.Errorf("claude api: %w", err)
+	}
+	if len(msg.Content) == 0 {
+		return "", fmt.Errorf("claude api: empty response content")
 	}
 	return msg.Content[0].Text, nil
 }
