@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"os"
 	"testing"
 )
 
@@ -24,5 +23,3 @@ func TestNewClaudeProvider_WithAPIKey(t *testing.T) {
 	}
 }
 
-// Hindari unused-import error jika import os hanya untuk t.Setenv (which uses os internally)
-var _ = os.Getenv
