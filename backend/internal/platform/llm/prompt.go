@@ -57,6 +57,10 @@ func buildPostTransactionPrompt(rc domain.ReminderContext) string {
 			g.Name, currency.FormatIDR(g.SavedAmount), currency.FormatIDR(g.TargetAmount), pct))
 	}
 
+	if rc.SpendingAlert {
+		sb.WriteString("- PERINGATAN: Pengeluaran bulan ini sudah ≥ 80% dari ruang belanja (pemasukan dikurangi alokasi nabung). Sertakan peringatan hemat dalam pesanmu.\n")
+	}
+
 	sb.WriteString("\nSusun pesan konfirmasi transaksi + konteks keuangan di atas. Singkat dan motivatif.")
 	return sb.String()
 }
