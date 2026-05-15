@@ -65,6 +65,40 @@ func (u *ReminderUsecase) BuildContext(ctx context.Context, user *domain.User, l
 		return nil, err
 	}
 
+	var monthlySavingsTarget int64
+	for _, g := range goals {
+		if g.Deadline == nil || !g.IsActive {
+			continue
+		}
+		remaining := g.TargetAmount - g.SavedAmount
+		if remaining <= 0 {
+			continue
+		}
+		months := (g.Deadline.Year()-now.Year())*12 + int(g.Deadline.Month()) - int(now.Month())
+		if months <= 0 {
+			continue
+		}
+		monthlySavingsTarget += remaining / int64(months)
+	}
+
+	monthIncome, err := u.txRepo.GetMonthIncome(ctx, user.ID, now.Year(), int(now.Month()))
+	if err != nil {
+		return nil, err
+	}
+
+	var monthExpense int64
+	for _, v := range monthByCategory {
+		monthExpense += v
+	}
+
+	spendingAlert := false
+	if monthIncome > 0 && monthlySavingsTarget > 0 {
+		spendingRoom := monthIncome - monthlySavingsTarget
+		if spendingRoom > 0 {
+			spendingAlert = monthExpense*100/spendingRoom >= 80
+		}
+	}
+
 	budgetRemaining := make(map[string]int64)
 	for _, b := range budgets {
 		budgetRemaining[b.Category] = b.Amount - monthByCategory[b.Category]
@@ -84,5 +118,6 @@ func (u *ReminderUsecase) BuildContext(ctx context.Context, user *domain.User, l
 		SpendByCategory: todayByCategory,
 		BudgetRemaining: budgetRemaining,
 		SavingsGoals:    goals,
+		SpendingAlert:   spendingAlert,
 	}, nil
 }

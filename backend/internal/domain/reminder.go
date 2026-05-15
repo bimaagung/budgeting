@@ -20,6 +20,7 @@ type ReminderContext struct {
 	SpendByCategory map[string]int64
 	BudgetRemaining map[string]int64
 	SavingsGoals    []SavingsGoal
+	SpendingAlert   bool
 }
 
 type MessageComposer interface {
