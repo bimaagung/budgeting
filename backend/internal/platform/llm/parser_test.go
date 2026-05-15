@@ -15,7 +15,12 @@ func TestParseMessage_LiveAPI(t *testing.T) {
 		t.Skip("ANTHROPIC_API_KEY not set; live LLM test skipped")
 	}
 
-	composer := llm.NewMessageComposer()
+	t.Setenv("LLM_PROVIDER", "claude")
+	provider, err := llm.NewProvider()
+	if err != nil {
+		t.Fatalf("NewProvider: %v", err)
+	}
+	composer := llm.NewMessageComposer(provider)
 	ctx := context.Background()
 
 	tests := []struct {

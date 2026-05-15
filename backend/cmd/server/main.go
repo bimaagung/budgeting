@@ -21,7 +21,11 @@ func main() {
 	}
 
 	// platform
-	composer := llm.NewMessageComposer()
+	provider, err := llm.NewProvider()
+	if err != nil {
+		log.Fatalf("llm provider: %v", err)
+	}
+	composer := llm.NewMessageComposer(provider)
 
 	// repositories
 	userRepo := postgres.NewUserRepository(db)
