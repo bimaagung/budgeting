@@ -43,6 +43,7 @@ func main() {
 		handler.NewMessageHandler(messageUC),
 		handler.NewReminderHandler(reminderUC),
 		handler.NewGoalHandler(goalUC),
+		handler.NewUserHandler(userRepo),
 	)
 
 	port := os.Getenv("SERVER_PORT")

@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/recover"
 )
 
-func NewApp(msg *MessageHandler, reminder *ReminderHandler, goal *GoalHandler) *fiber.App {
+func NewApp(msg *MessageHandler, reminder *ReminderHandler, goal *GoalHandler, user *UserHandler) *fiber.App {
 	app := fiber.New()
 	app.Use(logger.New())
 	app.Use(recover.New())
@@ -22,6 +22,7 @@ func NewApp(msg *MessageHandler, reminder *ReminderHandler, goal *GoalHandler) *
 	api.Post("/goals", goal.SetGoal)
 	api.Post("/budgets", goal.SetBudget)
 	api.Get("/goals", goal.CheckGoals)
+	api.Get("/users/phones", user.Handle)
 
 	return app
 }
