@@ -35,6 +35,7 @@ type fakeTxRepo struct {
 	deleteResult *domain.Transaction
 	monthSpend   map[string]int64
 	todaySpend   map[string]int64
+	monthIncome  int64
 }
 
 func (f *fakeTxRepo) Save(ctx context.Context, tx *domain.Transaction) error {
@@ -55,6 +56,9 @@ func (f *fakeTxRepo) GetTodaySpendByCategory(ctx context.Context, userID uuid.UU
 }
 func (f *fakeTxRepo) GetMonthSpendByCategory(ctx context.Context, userID uuid.UUID, year, month int) (map[string]int64, error) {
 	return f.monthSpend, nil
+}
+func (f *fakeTxRepo) GetMonthIncome(_ context.Context, _ uuid.UUID, _, _ int) (int64, error) {
+	return f.monthIncome, nil
 }
 
 type fakeGoalRepo struct {
@@ -381,4 +385,7 @@ func (r *dedupAwareTxRepo) GetTodaySpendByCategory(ctx context.Context, uid uuid
 }
 func (r *dedupAwareTxRepo) GetMonthSpendByCategory(ctx context.Context, uid uuid.UUID, year, month int) (map[string]int64, error) {
 	return nil, nil
+}
+func (r *dedupAwareTxRepo) GetMonthIncome(_ context.Context, _ uuid.UUID, _, _ int) (int64, error) {
+	return 0, nil
 }

@@ -82,3 +82,84 @@ func TestTransactionRepo_DoubleInsertSameReceivedAt(t *testing.T) {
 		t.Errorf("rows in DB: got %d, want 1", count)
 	}
 }
+
+func TestGetMonthIncome_ReturnsSumForCurrentMonth(t *testing.T) {
+	db, cleanup := newTestDB(t)
+	defer cleanup()
+
+	repo := postgres.NewTransactionRepository(db)
+	uid := mustSeedUser(t, db)
+	now := time.Now()
+
+	seeds := []domain.Transaction{
+		{ID: uuid.New(), UserID: uid, Type: "income", Amount: 3_000_000,
+			Category: "Gaji", Date: now, ReceivedAt: now.Add(-2 * time.Second), RawMessage: "gaji"},
+		{ID: uuid.New(), UserID: uid, Type: "income", Amount: 500_000,
+			Category: "Freelance", Date: now, ReceivedAt: now.Add(-1 * time.Second), RawMessage: "freelance"},
+		// expense — harus diabaikan
+		{ID: uuid.New(), UserID: uid, Type: "expense", Amount: 100_000,
+			Category: "Makan & Minum", Date: now, ReceivedAt: now, RawMessage: "makan"},
+	}
+	for i := range seeds {
+		if err := db.Create(&seeds[i]).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	total, err := repo.GetMonthIncome(context.Background(), uid, now.Year(), int(now.Month()))
+	if err != nil {
+		t.Fatalf("GetMonthIncome: %v", err)
+	}
+	if total != 3_500_000 {
+		t.Errorf("total = %d, want 3500000", total)
+	}
+}
+
+func TestGetMonthIncome_ExcludesPreviousMonth(t *testing.T) {
+	db, cleanup := newTestDB(t)
+	defer cleanup()
+
+	repo := postgres.NewTransactionRepository(db)
+	uid := mustSeedUser(t, db)
+	now := time.Now()
+	prevMonth := now.AddDate(0, -1, 0)
+
+	seeds := []domain.Transaction{
+		// income bulan lalu — harus diabaikan
+		{ID: uuid.New(), UserID: uid, Type: "income", Amount: 5_000_000,
+			Category: "Gaji", Date: prevMonth, ReceivedAt: prevMonth, RawMessage: "gaji lalu"},
+		// income bulan ini
+		{ID: uuid.New(), UserID: uid, Type: "income", Amount: 1_000_000,
+			Category: "Gaji", Date: now, ReceivedAt: now.Add(-1 * time.Second), RawMessage: "gaji ini"},
+	}
+	for i := range seeds {
+		if err := db.Create(&seeds[i]).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+
+	total, err := repo.GetMonthIncome(context.Background(), uid, now.Year(), int(now.Month()))
+	if err != nil {
+		t.Fatalf("GetMonthIncome: %v", err)
+	}
+	if total != 1_000_000 {
+		t.Errorf("total = %d, want 1000000", total)
+	}
+}
+
+func TestGetMonthIncome_ReturnsZeroWhenNoIncome(t *testing.T) {
+	db, cleanup := newTestDB(t)
+	defer cleanup()
+
+	repo := postgres.NewTransactionRepository(db)
+	uid := mustSeedUser(t, db)
+	now := time.Now()
+
+	total, err := repo.GetMonthIncome(context.Background(), uid, now.Year(), int(now.Month()))
+	if err != nil {
+		t.Fatalf("GetMonthIncome: %v", err)
+	}
+	if total != 0 {
+		t.Errorf("total = %d, want 0", total)
+	}
+}

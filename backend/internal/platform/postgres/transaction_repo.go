@@ -81,6 +81,17 @@ type categoryRow struct {
 	Total    int64
 }
 
+func (r *transactionRepo) GetMonthIncome(ctx context.Context, userID uuid.UUID, year, month int) (int64, error) {
+	var total int64
+	err := r.db.WithContext(ctx).
+		Model(&domain.Transaction{}).
+		Select("COALESCE(SUM(amount), 0)").
+		Where("user_id = ? AND type = 'income' AND EXTRACT(YEAR FROM date) = ? AND EXTRACT(MONTH FROM date) = ?",
+			userID, year, month).
+		Scan(&total).Error
+	return total, err
+}
+
 func (r *transactionRepo) spendByCategory(ctx context.Context, userID uuid.UUID, dateCondition string, dateArgs ...any) (map[string]int64, error) {
 	args := append([]any{userID}, dateArgs...)
 	var rows []categoryRow

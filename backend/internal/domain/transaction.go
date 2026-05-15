@@ -26,4 +26,5 @@ type TransactionRepository interface {
 	GetBalance(ctx context.Context, userID uuid.UUID) (int64, error)
 	GetTodaySpendByCategory(ctx context.Context, userID uuid.UUID) (map[string]int64, error)
 	GetMonthSpendByCategory(ctx context.Context, userID uuid.UUID, year, month int) (map[string]int64, error)
+	GetMonthIncome(ctx context.Context, userID uuid.UUID, year, month int) (int64, error)
 }
