@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "POST /api/message request body",
+  "description": "Payload yang dikirim n8n ke backend saat ada pesan WhatsApp masuk.",
+  "type": "object",
+  "required": ["phone", "message", "received_at"],
+  "additionalProperties": true,
+  "properties": {
+    "phone": {
+      "type": "string",
+      "description": "Nomor telepon pengirim. Handler menormalisasi ke E.164 (+62...) sebelum lookup user.",
+      "examples": ["+6281234567890", "6281234567890", "081234567890"]
+    },
+    "message": {
+      "type": "string",
+      "description": "Teks mentah pesan WhatsApp apa adanya dari user.",
+      "minLength": 1
+    },
+    "received_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Timestamp event WhatsApp Business API (RFC3339). Digunakan sebagai kunci idempotency bersama user_id."
+    }
+  }
+}

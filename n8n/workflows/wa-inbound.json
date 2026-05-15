@@ -1,28 +1,68 @@
 {
   "name": "WA Inbound → Golang",
+  "active": false,
   "nodes": [
     {
+      "id": "node-comment-contract",
+      "name": "CONTRACT",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 100],
+      "parameters": {
+        "content": "## Kontrak POST /api/message\n\nWorkflow ini hanya meneruskan (forward) — tidak ada logika parse di sini.\n\n**Request body yang dikirim ke Golang:**\n```json\n{\n  \"phone\": \"<nomor dari WA Business API>\",\n  \"message\": \"<teks mentah apa adanya>\",\n  \"received_at\": \"<RFC3339 dari event timestamp, BUKAN Date.now()>\"\n}\n```\n\n**Idempotency:** `received_at` harus stabil antar retry.\nGunakan `messages[0].timestamp` dari webhook event — jangan generate ulang.",
+        "height": 220,
+        "width": 400
+      }
+    },
+    {
+      "id": "node-comment-response",
+      "name": "RESPONSE",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [900, 80],
+      "parameters": {
+        "content": "## Response envelope dari Golang\n\nSelalu baca field `reply_text` untuk pesan yang diteruskan ke user.\n\n```json\n{\n  \"reply_type\": \"confirm|clarify|info|error\",\n  \"persisted\": true|false,\n  \"reply_text\": \"<pesan untuk user — selalu non-kosong>\"\n}\n```\n\n`reply_type` tidak perlu di-switch; cukup teruskan `reply_text`.",
+        "height": 180,
+        "width": 340
+      }
+    },
+    {
+      "id": "node-webhook",
       "name": "WhatsApp Webhook",
       "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
       "parameters": {
         "path": "wa-inbound",
-        "httpMethod": "POST"
-      },
-      "notes": "Meta mengirim event ke URL ini saat ada pesan masuk. Pastikan URL ini terdaftar di Meta Developer Console sebagai Webhook URL dengan Verify Token yang sama."
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "firstEntryJson"
+      }
     },
     {
-      "name": "Verify Token (GET)",
+      "id": "node-guard",
+      "name": "Has Messages?",
       "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300],
       "parameters": {
         "conditions": {
-          "string": [{ "value1": "={{ $json.query['hub.mode'] }}", "value2": "subscribe" }]
+          "string": [
+            {
+              "value1": "={{ ($json.body.entry && $json.body.entry[0] && $json.body.entry[0].changes && $json.body.entry[0].changes[0] && $json.body.entry[0].changes[0].value && $json.body.entry[0].changes[0].value.messages) ? 'yes' : 'no' }}",
+              "operation": "equal",
+              "value2": "yes"
+            }
+          ]
         }
-      },
-      "notes": "Meta melakukan GET request untuk verifikasi webhook. Jika hub.mode = subscribe, balas dengan hub.challenge."
+      }
     },
     {
+      "id": "node-extract",
       "name": "Extract Phone + Message",
       "type": "n8n-nodes-base.set",
+      "typeVersion": 1,
+      "position": [680, 200],
       "parameters": {
         "values": {
           "string": [
@@ -39,57 +79,86 @@
               "value": "={{ new Date(parseInt($json.body.entry[0].changes[0].value.messages[0].timestamp) * 1000).toISOString() }}"
             }
           ]
-        }
-      },
-      "notes": "Ekstrak nomor pengirim, isi pesan, dan timestamp dari payload WhatsApp Cloud API. received_at berasal dari event timestamp (bukan Date.now()) untuk mendukung idempotency di backend."
+        },
+        "options": {}
+      }
     },
     {
+      "id": "node-post",
       "name": "POST ke Golang /api/message",
       "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 200],
       "parameters": {
         "method": "POST",
-        "url": "http://localhost:8080/api/message",
-        "bodyParametersUi": {
-          "parameter": [
+        "url": "http://host.docker.internal:8080/api/message",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
             { "name": "phone", "value": "={{ $json.phone }}" },
             { "name": "message", "value": "={{ $json.message }}" },
             { "name": "received_at", "value": "={{ $json.received_at }}" }
           ]
         },
-        "responseFormat": "json"
+        "options": {}
       }
     },
     {
+      "id": "node-reply",
       "name": "Kirim Reply ke WhatsApp",
       "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 200],
       "parameters": {
         "method": "POST",
-        "url": "=https://graph.facebook.com/v19.0/{{ $env.WA_PHONE_NUMBER_ID }}/messages",
-        "authentication": "predefinedCredentialType",
-        "headers": {
-          "Authorization": "=Bearer {{ $env.WA_API_TOKEN }}"
-        },
-        "bodyParametersUi": {
-          "parameter": [
-            { "name": "messaging_product", "value": "whatsapp" },
-            { "name": "to", "value": "={{ $node['Extract Phone + Message'].json.phone }}" },
-            { "name": "type", "value": "text" },
-            { "name": "text.body", "value": "={{ $json.reply_text }}" }
+        "url": "=https://graph.facebook.com/v19.0/{{ $vars.WA_PHONE_NUMBER_ID }}/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $vars.WA_API_TOKEN }}"
+            }
           ]
-        }
-      }
-    },
-    {
-      "name": "Kontrak /api/message",
-      "type": "n8n-nodes-base.stickyNote",
-      "parameters": {
-        "content": "POST /api/message contract (spec: openspec/changes/add-message-ingestion):\n\nBody harus berisi:\n  {\n    \"phone\":       \"<E.164 atau format 0-prefix Indonesia>\",\n    \"message\":     \"<raw text WA, trimming outer whitespace dilakukan backend>\",\n    \"received_at\": \"<RFC3339 dari timestamp event WA>\"\n  }\n\nPENTING: received_at HARUS dari timestamp event WA Business API, BUKAN\nDate.now() / $now. Backend menggunakan (user_id, received_at) sebagai\ndedup key — timestamp salah = duplikasi baris pada retry.\n\nBackend selalu return HTTP 200 (reply_type ∈ confirm/clarify/info/error)\nkecuali request malformed (400) atau user tidak terdaftar (404).\nForward field reply_text ke WhatsApp message node."
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "messaging_product", "value": "whatsapp" },
+            { "name": "to", "value": "={{ $('Extract Phone + Message').item.json.phone }}" },
+            { "name": "type", "value": "text" },
+            { "name": "text", "value": "={{ JSON.stringify({ body: $json.reply_text }) }}" }
+          ]
+        },
+        "options": {}
       }
     }
   ],
   "connections": {
-    "WhatsApp Webhook": { "main": [[ { "node": "Extract Phone + Message" } ]] },
-    "Extract Phone + Message": { "main": [[ { "node": "POST ke Golang /api/message" } ]] },
-    "POST ke Golang /api/message": { "main": [[ { "node": "Kirim Reply ke WhatsApp" } ]] }
-  }
+    "WhatsApp Webhook": {
+      "main": [
+        [{ "node": "Has Messages?", "type": "main", "index": 0 }]
+      ]
+    },
+    "Has Messages?": {
+      "main": [
+        [{ "node": "Extract Phone + Message", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Extract Phone + Message": {
+      "main": [
+        [{ "node": "POST ke Golang /api/message", "type": "main", "index": 0 }]
+      ]
+    },
+    "POST ke Golang /api/message": {
+      "main": [
+        [{ "node": "Kirim Reply ke WhatsApp", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
 }
