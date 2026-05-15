@@ -17,4 +17,5 @@ type User struct {
 type UserRepository interface {
 	FindByPhone(ctx context.Context, phone string) (*User, error)
 	Upsert(ctx context.Context, user User) (*User, error)
+	GetAllPhones(ctx context.Context) ([]string, error)
 }

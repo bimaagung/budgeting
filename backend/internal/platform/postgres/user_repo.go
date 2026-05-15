@@ -33,3 +33,12 @@ func (r *userRepo) Upsert(ctx context.Context, user domain.User) (*domain.User, 
 	}
 	return &user, nil
 }
+
+func (r *userRepo) GetAllPhones(ctx context.Context) ([]string, error) {
+	var phones []string
+	err := r.db.WithContext(ctx).Model(&domain.User{}).Pluck("phone", &phones).Error
+	if phones == nil {
+		phones = []string{}
+	}
+	return phones, err
+}

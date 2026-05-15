@@ -26,6 +26,7 @@ func (f *fakeUserRepo) Upsert(ctx context.Context, u domain.User) (*domain.User,
 	f.user = &u
 	return &u, nil
 }
+func (f *fakeUserRepo) GetAllPhones(_ context.Context) ([]string, error) { return []string{}, nil }
 
 type fakeTxRepo struct {
 	saved        []domain.Transaction
