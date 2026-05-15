@@ -36,7 +36,7 @@ func newGeminiProvider() (*geminiProvider, error) {
 
 func (g *geminiProvider) Generate(ctx context.Context, system, user string, expectJSON bool) (string, error) {
 	cfg := &genai.GenerateContentConfig{
-		SystemInstruction: genai.NewContentFromText(system, genai.RoleUser),
+		SystemInstruction: &genai.Content{Parts: []*genai.Part{{Text: system}}},
 		Temperature:       genai.Ptr[float32](0.2),
 	}
 	if expectJSON {
@@ -47,7 +47,11 @@ func (g *geminiProvider) Generate(ctx context.Context, system, user string, expe
 	if err != nil {
 		return "", fmt.Errorf("gemini api: %w", err)
 	}
-	return resp.Text(), nil
+	out := resp.Text()
+	if out == "" {
+		return "", fmt.Errorf("gemini api: empty response (blocked or safety-filtered)")
+	}
+	return out, nil
 }
 
 // parseResponseSchema — strict JSON schema untuk ParseResult.
@@ -68,5 +72,5 @@ var parseResponseSchema = &genai.Schema{
 		"goal_name":  {Type: genai.TypeString},
 		"confidence": {Type: genai.TypeNumber},
 	},
-	Required: []string{"intent", "amount", "category", "note", "goal_name", "confidence"},
+	Required: []string{"intent", "amount", "category", "note", "confidence"},
 }
