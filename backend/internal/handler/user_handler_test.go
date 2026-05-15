@@ -58,7 +58,10 @@ func TestUserHandler_EmptyPhones_ReturnsEmptyArray(t *testing.T) {
 	app := newUserApp(q)
 
 	req := httptest.NewRequest("GET", "/api/users/phones", nil)
-	resp, _ := app.Test(req, -1)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
 	if resp.StatusCode != 200 {
 		t.Fatalf("status: got %d, want 200", resp.StatusCode)
 	}
@@ -77,7 +80,10 @@ func TestUserHandler_DBError_Returns500(t *testing.T) {
 	app := newUserApp(q)
 
 	req := httptest.NewRequest("GET", "/api/users/phones", nil)
-	resp, _ := app.Test(req, -1)
+	resp, err := app.Test(req, -1)
+	if err != nil {
+		t.Fatalf("app.Test: %v", err)
+	}
 	if resp.StatusCode != 500 {
 		t.Fatalf("status: got %d, want 500", resp.StatusCode)
 	}
