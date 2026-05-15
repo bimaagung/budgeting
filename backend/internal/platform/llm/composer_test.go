@@ -14,11 +14,9 @@ type stubProvider struct {
 	gotSystem     string
 	gotUser       string
 	gotExpectJSON bool
-	calls         int
 }
 
 func (s *stubProvider) Generate(ctx context.Context, sys, user string, expectJSON bool) (string, error) {
-	s.calls++
 	s.gotSystem = sys
 	s.gotUser = user
 	s.gotExpectJSON = expectJSON
@@ -104,5 +102,8 @@ func TestComposer_FormatDailyReminder_UsesReminderPrompt(t *testing.T) {
 	}
 	if stub.gotSystem != reminderSystemPrompt {
 		t.Errorf("expected reminderSystemPrompt to be used")
+	}
+	if stub.gotExpectJSON {
+		t.Errorf("expectJSON should be false for reminder formatting")
 	}
 }
